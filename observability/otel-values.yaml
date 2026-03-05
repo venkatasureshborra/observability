@@ -15,7 +15,7 @@ config:
   exporters:
     # 📍 Route 1: Send Traces to Jaeger
     otlp/jaeger:
-      endpoint: "jaeger-collector.tracing.svc.cluster.local:4317"
+      endpoint: "jaeger.tracing.svc.cluster.local:4317"
       tls:
         insecure: true
         

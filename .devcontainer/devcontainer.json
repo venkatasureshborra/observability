@@ -1,0 +1,29 @@
+{
+  "name": "Observability Stack Setup",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "enableNonRootDocker": "true",
+      "moby": "true"
+    },
+    "ghcr.io/devcontainers/features/kubectl:1": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/helm:1": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/kind:1": {
+      "version": "latest"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+        "redhat.vscode-yaml"
+      ]
+    }
+  },
+  "remoteUser": "vscode"
+}

@@ -1,0 +1,13 @@
+mode: standalone
+replicas: 2
+rootUser: minio
+rootPassword: minio123
+
+persistence:
+  enabled: true
+  size: 4Gi
+
+resources:
+  requests:
+    memory: 1Gi
+    cpu: 500m

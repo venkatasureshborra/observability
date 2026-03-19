@@ -1,0 +1,26 @@
+tempo:
+  storage:
+    trace:
+      backend: s3
+      s3:
+        endpoint: minio.observability.svc.cluster.local:9000
+        bucket: tempo
+        access_key: minio
+        secret_key: minio123
+        insecure: true
+
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+        http:
+
+tempoQuery:
+  enabled: true
+
+replicas: 2
+
+resources:
+  requests:
+    memory: 1Gi
+    cpu: 300m

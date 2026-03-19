@@ -1,0 +1,12 @@
+server:
+  global:
+    scrape_interval: 15s
+
+  persistentVolume:
+    enabled: true
+    size: 2Gi
+
+resources:
+  requests:
+    memory: 1Gi
+    cpu: 500m

@@ -1,0 +1,89 @@
+minio:
+  enabled: false
+
+# Reduce replicas everywhere
+alertmanager:
+  enabled: false
+
+compactor:
+  enabled: false
+
+distributor:
+  replicas: 1
+
+ingester:
+  replicas: 1
+  zoneAwareReplication:
+    enabled: false
+
+querier:
+  replicas: 1
+
+query_frontend:
+  replicas: 1
+
+query_scheduler:
+  replicas: 1
+
+store_gateway:
+  replicas: 1
+  zoneAwareReplication:
+    enabled: false
+
+ruler:
+  replicas: 1
+
+overrides_exporter:
+  replicas: 1
+
+# Disable Kafka (VERY IMPORTANT)
+kafka:
+  enabled: false
+
+# Reduce resources
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+# Storage (MinIO inside chart)
+
+mimir:
+  structuredConfig:
+
+    # 🔥 THIS IS THE ACTUAL FIX
+    ingester:
+      ring:
+        replication_factor: 1
+
+    limits:
+      ingestion_rate: 10000
+      ingestion_burst_size: 20000
+
+    # 🔥 FORCE DIRECT INGESTION (NO KAFKA PATH)
+    distributor:
+      shard_by_all_labels: true
+
+    # 🔥 REQUIRED: remove kafka dependency
+    memberlist:
+      join_members:
+        - mimir-gossip-ring
+
+    common:
+      storage:
+        backend: s3
+        s3:
+          endpoint: minio.s3-storage.svc.cluster.local:9000
+          bucket_name: mimir
+          access_key_id: minio
+          secret_access_key: minio123
+          insecure: true
+
+    blocks_storage:
+      backend: s3
+      s3:
+        endpoint: minio.s3-storage.svc.cluster.local:9000
+        bucket_name: mimir
+        access_key_id: minio
+        secret_access_key: minio123
+        insecure: true

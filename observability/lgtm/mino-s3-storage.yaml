@@ -1,0 +1,9 @@
+mode: standalone ## For Production use "distributed" -- High Availability
+replicas: 2
+persistence:
+  size: 2Gi
+resources:
+  requests:
+    memory: 250Mi
+
+

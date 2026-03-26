@@ -1,0 +1,425 @@
+---
+# OTel Collector ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: monitoring
+data:
+  otelcol.yaml: |
+    # ──────────────────────────────────────────────
+    # OpenTelemetry Collector  (otelcol-contrib)
+    # Receives: OTLP gRPC + HTTP, Jaeger, Zipkin
+    # Exports:  Prometheus (metrics)
+    #           Loki (logs via otlphttp)
+    #           Tempo (traces via otlp)
+    # ──────────────────────────────────────────────
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+      pprof:
+        endpoint: 0.0.0.0:1777
+      zpages:
+        endpoint: 0.0.0.0:55679
+
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+            cors:
+              allowed_origins:
+                - "http://*"
+                - "https://*"
+
+      # Jaeger compatibility (for older SDKs)
+      jaeger:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:14250
+          thrift_http:
+            endpoint: 0.0.0.0:14268
+
+      # Zipkin compatibility
+      zipkin:
+        endpoint: 0.0.0.0:9411
+
+      # Prometheus scrape - pull metrics from OTel Demo services
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: otel-demo-scrape
+              scrape_interval: 15s
+              kubernetes_sd_configs:
+                - role: pod
+                  namespaces:
+                    names:
+                      - otel-demo
+              relabel_configs:
+                - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+                  action: keep
+                  regex: "true"
+                - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+                  action: replace
+                  target_label: __address__
+                  regex: (.+)
+                  replacement: $1
+
+    processors:
+      # Batch processor - key for performance
+      batch:
+        send_batch_size: 10000
+        send_batch_max_size: 11000
+        timeout: 10s
+
+      # Memory limiter - prevent OOM
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 15
+
+      # Add resource attributes
+      resource:
+        attributes:
+          - key: cluster
+            value: kind-local
+            action: upsert
+          - key: environment
+            value: dev
+            action: upsert
+
+      # Kubernetes metadata enrichment
+      k8sattributes:
+        auth_type: serviceAccount
+        passthrough: false
+        filter:
+          node_from_env_var: KUBE_NODE_NAME
+        extract:
+          metadata:
+            - k8s.namespace.name
+            - k8s.pod.name
+            - k8s.pod.uid
+            - k8s.deployment.name
+            - k8s.statefulset.name
+            - k8s.daemonset.name
+            - k8s.cronjob.name
+            - k8s.job.name
+            - k8s.node.name
+            - k8s.pod.start_time
+          labels:
+            - tag_name: app.label.component
+              key: app.kubernetes.io/component
+              from: pod
+        pod_association:
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.ip
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.uid
+          - sources:
+              - from: connection
+
+      # Transform processor - add service metadata to logs
+      transform/logs:
+        log_statements:
+          - context: log
+            statements:
+              - set(attributes["cluster"], "kind-local")
+              - set(attributes["environment"], "dev")
+
+      # Tail sampling - keep 100% for errors, 10% for healthy traces
+      tail_sampling:
+        decision_wait: 10s
+        num_traces: 100
+        expected_new_traces_per_sec: 10
+        policies:
+          - name: errors-policy
+            type: status_code
+            status_code:
+              status_codes: [ERROR]
+          - name: slow-traces-policy
+            type: latency
+            latency:
+              threshold_ms: 500
+          - name: probabilistic-policy
+            type: probabilistic
+            probabilistic:
+              sampling_percentage: 10
+
+    exporters:
+      # ── Metrics → Prometheus (remote_write) ──
+      prometheusremotewrite:
+        endpoint: http://prometheus:9090/api/v1/write
+        tls:
+          insecure: true
+        resource_to_telemetry_conversion:
+          enabled: true
+        add_metric_suffixes: false
+
+      # ── Metrics → also expose /metrics for Prometheus scraping ──
+      prometheus:
+        endpoint: 0.0.0.0:8889
+        resource_to_telemetry_conversion:
+          enabled: true
+        enable_open_metrics: true
+
+      # ── Traces → Tempo ──
+      otlp/tempo:
+        endpoint: http://tempo:4317
+        tls:
+          insecure: true
+
+      # ── Logs → Loki ──
+      loki:
+        endpoint: http://loki:3100/loki/api/v1/push
+        tls:
+          insecure: true
+        default_labels_enabled:
+          exporter: false
+          job: true
+          instance: false
+          level: true
+
+      # Debug exporter (logs to stdout - useful in dev)
+      debug:
+        verbosity: basic
+        sampling_initial: 5
+        sampling_thereafter: 200
+
+    service:
+      extensions:
+        - health_check
+        - pprof
+        - zpages
+
+      pipelines:
+        # ── Traces pipeline ──
+        traces:
+          receivers:
+            - otlp
+            - jaeger
+            - zipkin
+          processors:
+            - memory_limiter
+            - k8sattributes
+            - resource
+            - tail_sampling
+            - batch
+          exporters:
+            - otlp/tempo
+            - debug
+
+        # ── Metrics pipeline ──
+        metrics:
+          receivers:
+            - otlp
+            - prometheus
+          processors:
+            - memory_limiter
+            - k8sattributes
+            - resource
+            - batch
+          exporters:
+            - prometheusremotewrite
+            - prometheus
+            - debug
+
+        # ── Logs pipeline ──
+        logs:
+          receivers:
+            - otlp
+          processors:
+            - memory_limiter
+            - k8sattributes
+            - resource
+            - transform/logs
+            - batch
+          exporters:
+            - loki
+            - debug
+
+      telemetry:
+        logs:
+          level: info
+        metrics:
+          level: detailed
+          address: 0.0.0.0:8888
+---
+# OTel Collector RBAC
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-collector
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/proxy
+      - nodes/metrics
+      - services
+      - endpoints
+      - pods
+      - events
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources:
+      - daemonsets
+      - deployments
+      - replicasets
+      - statefulsets
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics", "/metrics/cadvisor"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: otel-collector
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector
+    namespace: monitoring
+---
+# OTel Collector Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: monitoring
+  labels:
+    app: otel-collector
+    app.kubernetes.io/component: collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8888"
+    spec:
+      serviceAccountName: otel-collector
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.115.1
+          args:
+            - --config=/etc/otelcol/otelcol.yaml
+          env:
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP
+          ports:
+            - containerPort: 4317
+              name: otlp-grpc
+              protocol: TCP
+            - containerPort: 4318
+              name: otlp-http
+              protocol: TCP
+            - containerPort: 8888
+              name: metrics
+              protocol: TCP
+            - containerPort: 8889
+              name: prom-metrics
+              protocol: TCP
+            - containerPort: 9411
+              name: zipkin
+              protocol: TCP
+            - containerPort: 13133
+              name: health
+              protocol: TCP
+            - containerPort: 14250
+              name: jaeger-grpc
+              protocol: TCP
+            - containerPort: 14268
+              name: jaeger-http
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-config
+---
+# OTel Collector Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: monitoring
+  labels:
+    app: otel-collector
+spec:
+  selector:
+    app: otel-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+    - name: metrics
+      port: 8888
+      targetPort: 8888
+    - name: prom-metrics
+      port: 8889
+      targetPort: 8889
+    - name: zipkin
+      port: 9411
+      targetPort: 9411
+    - name: health
+      port: 13133
+      targetPort: 13133
+    - name: jaeger-grpc
+      port: 14250
+      targetPort: 14250
+    - name: jaeger-http
+      port: 14268
+      targetPort: 14268

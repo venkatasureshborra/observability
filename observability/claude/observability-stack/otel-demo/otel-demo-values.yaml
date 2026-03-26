@@ -1,0 +1,232 @@
+---
+# OTel Demo Helm values
+# Deploy with:
+#   helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+#   helm repo update
+#   helm install otel-demo open-telemetry/opentelemetry-demo \
+#     --namespace otel-demo \
+#     --create-namespace \
+#     --values otel-demo-values.yaml \
+#     --version 0.33.5
+
+---
+# OTel Demo Helm values — corrected for chart 0.33.5
+#
+# Key fixes vs previous version:
+#   1. `redis` removed from components (not a valid component key in 0.33.5;
+#      Valkey/Redis is a subchart, not listed under .components)
+#   2. Removed `default.env` block — the chart already declares OTEL_EXPORTER_OTLP_ENDPOINT
+#      in its own default env. Re-declaring it causes "duplicate entries" schema error.
+#      Use per-component `envOverrides` to redirect to our collector instead.
+#   3. All bundled sub-charts disabled (prometheus, grafana, jaeger, opensearch).
+#   4. Bundled opentelemetry-collector disabled — we use our own in monitoring namespace.
+ 
+# ── Disable bundled observability sub-charts ─────────────────────
+
+default: 
+  envOverrides: 
+     - name: OTEL_COLLECTOR_NAME
+       value: 'otel-collector.monitoring.svc.cluster.local'
+
+prometheus:
+  enabled: false
+ 
+grafana:
+  enabled: false
+ 
+jaeger:
+  enabled: false
+ 
+opensearch:
+  enabled: false
+ 
+# ── Disable the bundled OTel Collector ───────────────────────────
+opentelemetry-collector:
+  enabled: false
+ 
+# ── Per-component collector redirect ─────────────────────────────
+# `envOverrides` performs an array REPLACE on matching env var names.
+# This avoids the "duplicate entries" error that occurs when using `env`
+# alongside the chart's built-in default env declarations.
+ 
+components:
+  frontendProxy:
+    enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+ 
+  frontend:
+    enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+ 
+  productCatalogService:
+    enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+ 
+  cartService:
+    enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+
+  checkoutService:
+    enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+    
+  recommendationService:
+    enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 200m
+        memory: 512Mi
+
+ 
+  shippingService:
+    enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+  
+ 
+  emailService:
+    enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+
+ 
+  paymentService:
+    enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+    
+ 
+  currencyService:
+    enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+
+ 
+  adService:
+    enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 200m
+        memory: 512Mi
+   
+  frauddetectionService:
+    enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+  
+ 
+  accountingService:
+    enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+  
+ 
+  quoteService:
+    enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+    
+ 
+  loadgenerator:
+    enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 150Mi
+      limits:
+        cpu: 200m
+        memory: 1000Mi
+    
+ 
+  kafka:
+    enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    
+ 
+  flagd:
+    enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+   

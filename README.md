@@ -1,167 +1,221 @@
-<!-- <p align="center">
-<img src="/src/frontend/static/icons/Hipster_HeroLogoMaroon.svg" width="300" alt="Online Boutique" />
-</p> -->
-![Continuous Integration](https://github.com/GoogleCloudPlatform/microservices-demo/workflows/Continuous%20Integration%20-%20Main/Release/badge.svg)
+# Production-Grade Observability Stack on Kubernetes
 
-**Online Boutique** is a cloud-first microservices demo application.  The application is a
-web-based e-commerce app where users can browse items, add them to the cart, and purchase them.
+## Stack
 
-Google uses this application to demonstrate how developers can modernize enterprise applications using Google Cloud products, including: [Google Kubernetes Engine (GKE)](https://cloud.google.com/kubernetes-engine), [Cloud Service Mesh (CSM)](https://cloud.google.com/service-mesh), [gRPC](https://grpc.io/), [Cloud Operations](https://cloud.google.com/products/operations), [Spanner](https://cloud.google.com/spanner), [Memorystore](https://cloud.google.com/memorystore), [AlloyDB](https://cloud.google.com/alloydb), and [Gemini](https://ai.google.dev/). This application works on any Kubernetes cluster.
-
-If you’re using this demo, please **★Star** this repository to show your interest!
-
-**Note to Googlers:** Please fill out the form at [go/microservices-demo](http://go/microservices-demo).
+| Component | Version | Role |
+|---|---|---|
+| **OpenTelemetry Collector** | otelcol-contrib 0.115.1 | Central telemetry gateway |
+| **Prometheus** | 2.55.1 | Metrics storage & scraping |
+| **Loki** | 3.3.2 | Log aggregation |
+| **Tempo** | 2.7.1 | Distributed tracing |
+| **MinIO** | RELEASE.2024-11-07 | S3-compatible object store |
+| **Grafana** | 11.4.0 | Dashboards, alerts, exploration |
+| **OTel Demo** | Helm 0.33.5 | Sample microservices app |
 
 ## Architecture
 
-**Online Boutique** is composed of 11 microservices written in different
-languages that talk to each other over gRPC.
+```
+OTel Demo Microservices
+        │  OTLP (gRPC :4317)
+        ▼
+OTel Collector (otelcol-contrib)
+   ├── processors: batch, memory_limiter, k8sattributes, tail_sampling
+   ├──► Prometheus  (remote_write → :9090)
+   ├──► Loki        (OTLP logs   → :3100)
+   └──► Tempo       (OTLP traces → :4317)
+            │
+            └──► MinIO S3
+                   ├── bucket: loki-chunks
+                   ├── bucket: loki-ruler
+                   ├── bucket: loki-admin
+                   └── bucket: tempo-traces
 
-[![Architecture of
-microservices](/docs/img/architecture-diagram.png)](/docs/img/architecture-diagram.png)
+Grafana ◄── queries all three backends
+```
 
-Find **Protocol Buffers Descriptions** at the [`./protos` directory](/protos).
+## Quick Start
 
-| Service                                              | Language      | Description                                                                                                                       |
-| ---------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| [frontend](/src/frontend)                           | Go            | Exposes an HTTP server to serve the website. Does not require signup/login and generates session IDs for all users automatically. |
-| [cartservice](/src/cartservice)                     | C#            | Stores the items in the user's shopping cart in Redis and retrieves it.                                                           |
-| [productcatalogservice](/src/productcatalogservice) | Go            | Provides the list of products from a JSON file and ability to search products and get individual products.                        |
-| [currencyservice](/src/currencyservice)             | Node.js       | Converts one money amount to another currency. Uses real values fetched from European Central Bank. It's the highest QPS service. |
-| [paymentservice](/src/paymentservice)               | Node.js       | Charges the given credit card info (mock) with the given amount and returns a transaction ID.                                     |
-| [shippingservice](/src/shippingservice)             | Go            | Gives shipping cost estimates based on the shopping cart. Ships items to the given address (mock)                                 |
-| [emailservice](/src/emailservice)                   | Python        | Sends users an order confirmation email (mock).                                                                                   |
-| [checkoutservice](/src/checkoutservice)             | Go            | Retrieves user cart, prepares order and orchestrates the payment, shipping and the email notification.                            |
-| [recommendationservice](/src/recommendationservice) | Python        | Recommends other products based on what's given in the cart.                                                                      |
-| [adservice](/src/adservice)                         | Java          | Provides text ads based on given context words.                                                                                   |
-| [loadgenerator](/src/loadgenerator)                 | Python/Locust | Continuously sends requests imitating realistic user shopping flows to the frontend.                                              |
+### Prerequisites
+- Docker Desktop (or Docker Engine) running
+- `kind` v0.26+
+- `kubectl` v1.31+
+- `helm` v3.16+
 
-## Screenshots
+### Full Deploy (one command)
 
-| Home Page                                                                                                         | Checkout Screen                                                                                                    |
-| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| [![Screenshot of store homepage](/docs/img/online-boutique-frontend-1.png)](/docs/img/online-boutique-frontend-1.png) | [![Screenshot of checkout screen](/docs/img/online-boutique-frontend-2.png)](/docs/img/online-boutique-frontend-2.png) |
+```bash
+chmod +x scripts/deploy.sh scripts/teardown.sh
+./scripts/deploy.sh full
+```
 
-## Quickstart (GKE)
+This will:
+1. Create a 3-node KinD cluster with port mappings
+2. Deploy MinIO and create buckets
+3. Deploy Prometheus, Loki, Tempo, OTel Collector, Grafana
+4. Deploy the OTel Demo application via Helm
+5. Run health checks and print access URLs
 
-1. Ensure you have the following requirements:
-   - [Google Cloud project](https://cloud.google.com/resource-manager/docs/creating-managing-projects#creating_a_project).
-   - Shell environment with `gcloud`, `git`, and `kubectl`.
+### Step-by-step (optional)
 
-2. Clone the latest major version.
+```bash
+# 1. Create KinD cluster only
+./scripts/deploy.sh cluster
 
-   ```sh
-   git clone --depth 1 --branch v0 https://github.com/GoogleCloudPlatform/microservices-demo.git
-   cd microservices-demo/
-   ```
+# 2. Deploy the observability stack
+./scripts/deploy.sh stack
 
-   The `--depth 1` argument skips downloading git history.
+# 3. Deploy OTel Demo app
+./scripts/deploy.sh demo
 
-3. Set the Google Cloud project and region and ensure the Google Kubernetes Engine API is enabled.
+# 4. Run health checks
+./scripts/deploy.sh health
+```
 
-   ```sh
-   export PROJECT_ID=<PROJECT_ID>
-   export REGION=us-central1
-   gcloud services enable container.googleapis.com \
-     --project=${PROJECT_ID}
-   ```
+## Access
 
-   Substitute `<PROJECT_ID>` with the ID of your Google Cloud project.
+| Service | URL | Credentials |
+|---|---|---|
+| Grafana | http://localhost:3000 | admin / admin |
+| Prometheus | http://localhost:9090 | — |
+| MinIO Console | http://localhost:9001 | minio / minio123 |
+| OTel Demo | (port-forward below) | — |
 
-4. Create a GKE cluster and get the credentials for it.
+### Access OTel Demo frontend
 
-   ```sh
-   gcloud container clusters create-auto online-boutique \
-     --project=${PROJECT_ID} --region=${REGION}
-   ```
+```bash
+kubectl port-forward -n otel-demo svc/otel-demo-frontend-proxy 8080:8080
+# then open http://localhost:8080
+```
 
-   Creating the cluster may take a few minutes.
+## Grafana: Exploring Telemetry
 
-5. Deploy Online Boutique to the cluster.
+### Metrics (PromQL)
+Navigate to Explore → select Prometheus datasource:
 
-   ```sh
-   kubectl apply -f ./release/kubernetes-manifests.yaml
-   ```
+```promql
+# Request rate by service
+rate(http_server_duration_milliseconds_count[5m])
 
-6. Wait for the pods to be ready.
+# P95 latency
+histogram_quantile(0.95, rate(http_server_duration_milliseconds_bucket[5m]))
 
-   ```sh
-   kubectl get pods
-   ```
+# Error rate
+rate(http_server_duration_milliseconds_count{http_status_code=~"5.."}[5m])
+  / rate(http_server_duration_milliseconds_count[5m])
+```
 
-   After a few minutes, you should see the Pods in a `Running` state:
+### Logs (LogQL)
+Navigate to Explore → select Loki datasource:
 
-   ```
-   NAME                                     READY   STATUS    RESTARTS   AGE
-   adservice-76bdd69666-ckc5j               1/1     Running   0          2m58s
-   cartservice-66d497c6b7-dp5jr             1/1     Running   0          2m59s
-   checkoutservice-666c784bd6-4jd22         1/1     Running   0          3m1s
-   currencyservice-5d5d496984-4jmd7         1/1     Running   0          2m59s
-   emailservice-667457d9d6-75jcq            1/1     Running   0          3m2s
-   frontend-6b8d69b9fb-wjqdg                1/1     Running   0          3m1s
-   loadgenerator-665b5cd444-gwqdq           1/1     Running   0          3m
-   paymentservice-68596d6dd6-bf6bv          1/1     Running   0          3m
-   productcatalogservice-557d474574-888kr   1/1     Running   0          3m
-   recommendationservice-69c56b74d4-7z8r5   1/1     Running   0          3m1s
-   redis-cart-5f59546cdd-5jnqf              1/1     Running   0          2m58s
-   shippingservice-6ccc89f8fd-v686r         1/1     Running   0          2m58s
-   ```
+```logql
+# All logs from otel-demo namespace
+{namespace="otel-demo"}
 
-7. Access the web frontend in a browser using the frontend's external IP.
+# Error logs only
+{namespace="otel-demo"} |= "error" | logfmt
 
-   ```sh
-   kubectl get service frontend-external | awk '{print $4}'
-   ```
+# Logs for a specific service
+{namespace="otel-demo", app="frontend"} | json
+```
 
-   Visit `http://EXTERNAL_IP` in a web browser to access your instance of Online Boutique.
+### Traces
+Navigate to Explore → select Tempo datasource:
+- Use **Search** tab to find traces by service, duration, or status
+- Click any trace to see the full waterfall
+- Click **Logs for this span** to jump to correlated logs in Loki
 
-8. Congrats! You've deployed the default Online Boutique. To deploy a different variation of Online Boutique (e.g., with Google Cloud Operations tracing, Istio, etc.), see [Deploy Online Boutique variations with Kustomize](#deploy-online-boutique-variations-with-kustomize).
+### Trace ↔ Metric ↔ Log Correlation
+This stack is wired for full correlation:
+- Prometheus exemplars link metrics → traces (configure `--enable-feature=exemplar-storage` if needed)
+- Loki derived fields extract `traceID` from logs → link to Tempo
+- Tempo service graph generates RED metrics → link to Prometheus
 
-9. Once you are done with it, delete the GKE cluster.
+## Key Design Decisions
 
-   ```sh
-   gcloud container clusters delete online-boutique \
-     --project=${PROJECT_ID} --region=${REGION}
-   ```
+**Why OTel Collector as gateway?**
+All services push OTLP to one collector instead of directly to backends. The collector adds k8s metadata enrichment, tail-based sampling, and fan-out to all three backends in a single pipeline change.
 
-   Deleting the cluster may take a few minutes.
+**Why MinIO for both Loki and Tempo?**
+Loki's TSDB schema (v13) and Tempo both use S3-compatible object storage. MinIO runs in-cluster providing real S3 semantics without cloud costs — identical to production AWS S3 usage.
 
-## Additional deployment options
+**Why tail sampling in the collector?**
+Head-based sampling (at the SDK) drops spans before you know if a trace has errors. Tail sampling waits for the full trace, keeping 100% of error traces and slow traces (>500ms) while sampling healthy fast traces at 10%.
 
-- **Terraform**: [See these instructions](/terraform) to learn how to deploy Online Boutique using [Terraform](https://www.terraform.io/intro).
-- **Istio / Cloud Service Mesh**: [See these instructions](/kustomize/components/service-mesh-istio/README.md) to deploy Online Boutique alongside an Istio-backed service mesh.
-- **Non-GKE clusters (Minikube, Kind, etc)**: See the [Development guide](/docs/development-guide.md) to learn how you can deploy Online Boutique on non-GKE clusters.
-- **AI assistant using Gemini**: [See these instructions](/kustomize/components/shopping-assistant/README.md) to deploy a Gemini-powered AI assistant that suggests products to purchase based on an image.
-- **And more**: The [`/kustomize` directory](/kustomize) contains instructions for customizing the deployment of Online Boutique with other variations.
+**Loki schema v13 with TSDB**
+TSDB is Loki's most efficient index store. Combined with the S3 object store backend, this mirrors Grafana Cloud Loki's architecture exactly.
 
-## Documentation
+**Tempo metrics-generator**
+Tempo's metrics generator derives RED metrics (rate, error, duration) directly from trace spans and remote-writes them to Prometheus — no instrumentation changes needed in services.
 
-- [Development](/docs/development-guide.md) to learn how to run and develop this app locally.
+## Useful Commands
 
-## Demos featuring Online Boutique
+```bash
+# Watch all pods come up
+kubectl get pods -n monitoring -w
+kubectl get pods -n otel-demo -w
 
-- [Platform Engineering in action: Deploy the Online Boutique sample apps with Score and Humanitec](https://medium.com/p/d99101001e69)
-- [The new Kubernetes Gateway API with Istio and Anthos Service Mesh (ASM)](https://medium.com/p/9d64c7009cd)
-- [Use Azure Redis Cache with the Online Boutique sample on AKS](https://medium.com/p/981bd98b53f8)
-- [Sail Sharp, 8 tips to optimize and secure your .NET containers for Kubernetes](https://medium.com/p/c68ba253844a)
-- [Deploy multi-region application with Anthos and Google cloud Spanner](https://medium.com/google-cloud/a2ea3493ed0)
-- [Use Google Cloud Memorystore (Redis) with the Online Boutique sample on GKE](https://medium.com/p/82f7879a900d)
-- [Use Helm to simplify the deployment of Online Boutique, with a Service Mesh, GitOps, and more!](https://medium.com/p/246119e46d53)
-- [How to reduce microservices complexity with Apigee and Anthos Service Mesh](https://cloud.google.com/blog/products/application-modernization/api-management-and-service-mesh-go-together)
-- [gRPC health probes with Kubernetes 1.24+](https://medium.com/p/b5bd26253a4c)
-- [Use Google Cloud Spanner with the Online Boutique sample](https://medium.com/p/f7248e077339)
-- [Seamlessly encrypt traffic from any apps in your Mesh to Memorystore (redis)](https://medium.com/google-cloud/64b71969318d)
-- [Strengthen your app's security with Cloud Service Mesh and Anthos Config Management](https://cloud.google.com/service-mesh/docs/strengthen-app-security)
-- [From edge to mesh: Exposing service mesh applications through GKE Ingress](https://cloud.google.com/architecture/exposing-service-mesh-apps-through-gke-ingress)
-- [Take the first step toward SRE with Cloud Operations Sandbox](https://cloud.google.com/blog/products/operations/on-the-road-to-sre-with-cloud-operations-sandbox)
-- [Deploying the Online Boutique sample application on Cloud Service Mesh](https://cloud.google.com/service-mesh/docs/onlineboutique-install-kpt)
-- [Anthos Service Mesh Workshop: Lab Guide](https://codelabs.developers.google.com/codelabs/anthos-service-mesh-workshop)
-- [KubeCon EU 2019 - Reinventing Networking: A Deep Dive into Istio's Multicluster Gateways - Steve Dake, Independent](https://youtu.be/-t2BfT59zJA?t=982)
-- Google Cloud Next'18 SF
-  - [Day 1 Keynote](https://youtu.be/vJ9OaAqfxo4?t=2416) showing GKE On-Prem
-  - [Day 3 Keynote](https://youtu.be/JQPOPV_VH5w?t=815) showing Stackdriver
-    APM (Tracing, Code Search, Profiler, Google Cloud Build)
-  - [Introduction to Service Management with Istio](https://www.youtube.com/watch?v=wCJrdKdD6UM&feature=youtu.be&t=586)
-- [Google Cloud Next'18 London – Keynote](https://youtu.be/nIq2pkNcfEI?t=3071)
-  showing Stackdriver Incident Response Management
-- [Microservices demo showcasing Go Micro](https://github.com/go-micro/demo)
+# Check OTel Collector pipelines (zpages)
+kubectl port-forward -n monitoring deploy/otel-collector 55679:55679
+# open http://localhost:55679/debug/tracez
+
+# Check Loki ingestion
+kubectl logs -n monitoring deploy/loki -f
+
+# Check Tempo ingestion
+kubectl logs -n monitoring deploy/tempo -f
+
+# Check Prometheus targets
+# open http://localhost:9090/targets
+
+# Reload Prometheus config without restart
+kubectl exec -n monitoring deploy/prometheus -- \
+  wget -qO- --post-data='' http://localhost:9090/-/reload
+
+# MinIO bucket contents
+kubectl exec -n monitoring deploy/minio -- \
+  mc ls local/loki-chunks
+
+# Resource usage
+kubectl top pods -n monitoring
+kubectl top pods -n otel-demo
+```
+
+## Teardown
+
+```bash
+./scripts/teardown.sh
+```
+
+## Resource Requirements
+
+| Component | CPU Request | Mem Request | CPU Limit | Mem Limit |
+|---|---|---|---|---|
+| OTel Collector | 200m | 256Mi | 1000m | 1Gi |
+| Prometheus | 200m | 512Mi | 1000m | 1Gi |
+| Loki | 200m | 256Mi | 1000m | 1Gi |
+| Tempo | 200m | 256Mi | 1000m | 1Gi |
+| Grafana | 100m | 256Mi | 500m | 512Mi |
+| MinIO | 100m | 256Mi | 500m | 512Mi |
+| OTel Demo (total) | ~1200m | ~1.5Gi | ~2500m | ~3.5Gi |
+
+Total fits comfortably in 4 CPU / 16 GB RAM.
+
+## Troubleshooting
+
+**Loki fails to start — bucket not found**
+MinIO bucket job may not have completed. Re-run:
+```bash
+kubectl delete job minio-create-buckets -n monitoring
+kubectl apply -f minio/minio.yaml
+```
+
+**OTel Collector CrashLoopBackOff**
+Check logs: `kubectl logs -n monitoring deploy/otel-collector`
+The k8sattributes processor requires the ClusterRole — ensure RBAC was applied.
+
+**Tempo shows no traces**
+Verify the OTel Demo OTLP endpoint points to `otel-collector.monitoring.svc.cluster.local:4317`.
+Check collector logs for export errors.
+
+**Grafana datasource "Bad Gateway"**
+Services use DNS names (`loki`, `prometheus`, `tempo`) — these resolve only within the cluster. Grafana is deployed in the same namespace (`monitoring`) so they resolve correctly.

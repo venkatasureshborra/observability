@@ -14,7 +14,7 @@ data:
     #           Loki (logs via otlphttp)
     #           Tempo (traces via otlp)
     # ──────────────────────────────────────────────
-
+ 
     extensions:
       health_check:
         endpoint: 0.0.0.0:13133
@@ -22,7 +22,7 @@ data:
         endpoint: 0.0.0.0:1777
       zpages:
         endpoint: 0.0.0.0:55679
-
+ 
     receivers:
       otlp:
         protocols:
@@ -34,7 +34,7 @@ data:
               allowed_origins:
                 - "http://*"
                 - "https://*"
-
+ 
       # Jaeger compatibility (for older SDKs)
       jaeger:
         protocols:
@@ -42,11 +42,11 @@ data:
             endpoint: 0.0.0.0:14250
           thrift_http:
             endpoint: 0.0.0.0:14268
-
+ 
       # Zipkin compatibility
       zipkin:
         endpoint: 0.0.0.0:9411
-
+ 
       # Prometheus scrape - pull metrics from OTel Demo services
       prometheus:
         config:
@@ -67,20 +67,20 @@ data:
                   target_label: __address__
                   regex: (.+)
                   replacement: $1
-
+ 
     processors:
       # Batch processor - key for performance
       batch:
         send_batch_size: 10000
         send_batch_max_size: 11000
         timeout: 10s
-
+ 
       # Memory limiter - prevent OOM
       memory_limiter:
         check_interval: 1s
         limit_percentage: 75
         spike_limit_percentage: 15
-
+ 
       # Add resource attributes
       resource:
         attributes:
@@ -90,7 +90,7 @@ data:
           - key: environment
             value: dev
             action: upsert
-
+ 
       # Kubernetes metadata enrichment
       k8sattributes:
         auth_type: serviceAccount
@@ -122,7 +122,7 @@ data:
                 name: k8s.pod.uid
           - sources:
               - from: connection
-
+ 
       # Transform processor - add service metadata to logs
       transform/logs:
         log_statements:
@@ -130,7 +130,7 @@ data:
             statements:
               - set(attributes["cluster"], "kind-local")
               - set(attributes["environment"], "dev")
-
+ 
       # Tail sampling - keep 100% for errors, 10% for healthy traces
       tail_sampling:
         decision_wait: 10s
@@ -149,53 +149,85 @@ data:
             type: probabilistic
             probabilistic:
               sampling_percentage: 10
-
+ 
     exporters:
       # ── Metrics → Prometheus (remote_write) ──
       prometheusremotewrite:
-        endpoint: http://prometheus:9090/api/v1/write
+        endpoint: http://prometheus.monitoring.svc.cluster.local:9090/api/v1/write
         tls:
           insecure: true
+        timeout: 30s
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+        sending_queue:
+          enabled: true
+          num_consumers: 5
+          queue_size: 10000
         resource_to_telemetry_conversion:
           enabled: true
         add_metric_suffixes: false
-
+        remote_write_queue:
+          num_consumers: 5
+ 
       # ── Metrics → also expose /metrics for Prometheus scraping ──
       prometheus:
         endpoint: 0.0.0.0:8889
         resource_to_telemetry_conversion:
           enabled: true
         enable_open_metrics: true
-
+ 
       # ── Traces → Tempo ──
       otlp/tempo:
-        endpoint: http://tempo:4317
+        endpoint: http://tempo.monitoring.svc.cluster.local:4317
         tls:
           insecure: true
-
+        timeout: 30s
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+        sending_queue:
+          enabled: true
+          num_consumers: 5
+          queue_size: 5000
+ 
       # ── Logs → Loki ──
       loki:
-        endpoint: http://loki:3100/loki/api/v1/push
+        endpoint: http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push
         tls:
           insecure: true
+        timeout: 30s
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+        sending_queue:
+          enabled: true
+          num_consumers: 5
+          queue_size: 5000
         default_labels_enabled:
           exporter: false
           job: true
           instance: false
           level: true
-
+ 
       # Debug exporter (logs to stdout - useful in dev)
       debug:
         verbosity: basic
         sampling_initial: 5
         sampling_thereafter: 200
-
+ 
     service:
       extensions:
         - health_check
         - pprof
         - zpages
-
+ 
       pipelines:
         # ── Traces pipeline ──
         traces:
@@ -212,7 +244,7 @@ data:
           exporters:
             - otlp/tempo
             - debug
-
+ 
         # ── Metrics pipeline ──
         metrics:
           receivers:
@@ -227,7 +259,7 @@ data:
             - prometheusremotewrite
             - prometheus
             - debug
-
+ 
         # ── Logs pipeline ──
         logs:
           receivers:
@@ -241,7 +273,7 @@ data:
           exporters:
             - loki
             - debug
-
+ 
       telemetry:
         logs:
           level: info

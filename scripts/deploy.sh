@@ -15,7 +15,7 @@ success() { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(pwd)"
 
 # ── Prerequisites check ──────────────────────────────────────────
 check_prereqs() {
@@ -267,7 +267,7 @@ main() {
     stack)
       check_prereqs
       deploy_stack
-      patch_nodeports
+      #patch_nodeports
       run_health_checks
       print_access_info
       ;;
@@ -282,7 +282,7 @@ main() {
       check_prereqs
       create_kind_cluster
       deploy_stack
-      patch_nodeports
+      #patch_nodeports
       deploy_otel_demo
       run_health_checks
       print_access_info
